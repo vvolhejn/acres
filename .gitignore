@@ -1,1 +1,6 @@
 data/
+env/
+
+# Python
+*.egg-info/
+__pycache__/
