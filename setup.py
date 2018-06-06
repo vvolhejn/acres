@@ -9,6 +9,7 @@ setup(
     license="MIT",
     packages=find_packages(),
     install_requires=[
-        "tensorflow == 1.5.0"
+        "tensorflow == 1.5.0",
+        "tqdm == 4.23",
     ]
 )
