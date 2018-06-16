@@ -5,3 +5,7 @@ logs/
 # Python
 *.egg-info/
 __pycache__/
+MANIFEST
+
+# Sublime
+*.sublime-*
