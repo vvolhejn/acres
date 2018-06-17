@@ -42,8 +42,8 @@ def main():
         # cv2.waitKey(0)
         image_binary = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                              cv2.THRESH_BINARY, 21, 1)
-        image_rgb = cv2.cvtColor(image_binary, cv2.COLOR_GRAY2BGR)
-        image_rgb[:, :, 0] = 255
+        image_rgb = cv2.cvtColor(image_binary, cv2.COLOR_GRAY2RGB)
+        image_rgb[:, :, 0] = 255  # Seems to be blue here.
         image_rgb = image_rgb * np.expand_dims(mask_bw != 0, 2)
 
         # cv2.imshow("image", image_rgb)
