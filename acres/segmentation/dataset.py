@@ -4,6 +4,24 @@ import random
 import tensorflow as tf
 
 
+def get_image_names(dataset_dir):
+    if dataset_dir.startswith("gs://"):
+        # Google Cloud Storage
+        dataset_dir = dataset_dir[len("gs://"):]
+        bucket_name = dataset_dir[:dataset_dir.index("/")]
+        prefix = os.path.join(dataset_dir[dataset_dir.index("/") + 1:], "masks/")
+
+        from google.cloud import storage
+        storage_client = storage.Client()
+        bucket = storage_client.get_bucket(bucket_name)
+        blobs = bucket.list_blobs(prefix=prefix)
+
+        return [blob.name[len(prefix):] for blob in blobs]
+    else:
+        # Local files
+        return os.listdir(os.path.join(dataset_dir, "masks"))
+
+
 def make_dataset(dataset_dir, names):
     """
     Creates one dataset out of the files in `dataset_dir` with names `names`.
@@ -23,7 +41,7 @@ def make_dataset(dataset_dir, names):
 
     dataset = tf.data.Dataset.from_tensor_slices((image_filenames, mask_filenames))
     dataset = dataset.map(_parse_function)
-    return dataset.shuffle(1000).batch(10)
+    return dataset.shuffle(1000).batch(10).repeat()
 
 
 def make_datasets(dataset_dir):
@@ -34,7 +52,7 @@ def make_datasets(dataset_dir):
     """
 
     # Names of the masks (end with .png) and their images (.jpg)
-    names = [x[:-(len(".png"))] for x in os.listdir(os.path.join(dataset_dir, "masks"))]
+    names = [x[:-(len(".png"))] for x in get_image_names(dataset_dir)]
     random.shuffle(names)
 
     split = [0.8, 0.1, 0.1]
