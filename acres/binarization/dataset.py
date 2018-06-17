@@ -5,6 +5,10 @@ import tensorflow as tf
 
 
 def get_image_names(dataset_dir):
+    """
+    List images in [dataset_dir]/masks, whether it is local on or Google Cloud Storage
+    """
+
     if dataset_dir.startswith("gs://"):
         # Google Cloud Storage
         dataset_dir = dataset_dir[len("gs://"):]
@@ -22,49 +26,61 @@ def get_image_names(dataset_dir):
         return os.listdir(os.path.join(dataset_dir, "masks"))
 
 
-def make_dataset(dataset_dir, names, image_size, context=0, stride=1):
+def make_dataset(dataset_dir, names, image_size, batch_size, shuffle, context, stride):
     """
     Creates one dataset out of the files in `dataset_dir` with names `names`.
     `image_size` = [image height, image width]
     `context` = how many pixels to add around each strip (the strip then has height 1+context*2)
     """
-    size = [200, 200]
 
     def _parse_function(image_filename, mask_filename):
         image_decoded = tf.image.decode_jpeg(tf.read_file(image_filename), channels=3)
         image_resized = tf.image.rgb_to_grayscale(tf.image.resize_images(image_decoded, image_size))
 
-        mask_decoded = tf.image.decode_jpeg(tf.read_file(mask_filename), channels=1)
+        mask_decoded = tf.image.decode_jpeg(tf.read_file(mask_filename), channels=3)
         mask_resized = tf.image.resize_images(mask_decoded, image_size)
         return image_resized, mask_resized
 
-    def _slice(image, mask):
-        slice_height = 1 + context * 2
+    def _extract_patches(image, mask):
+        patch_height = 1 + context * 2
         image_patches = tf.extract_image_patches([image],
-                                                 ksizes=[1, slice_height, image_size[1], 1],
-                                                 strides=[1, slice_height + stride - 1, 1, 1],
+                                                 ksizes=[1, patch_height, image_size[1], 1],
+                                                 strides=[1, patch_height + stride - 1, 1, 1],
                                                  rates=[1, 1, 1, 1],
                                                  padding="VALID")
-        reshaped_image_patches = tf.reshape(image_patches, [-1, slice_height, image_size[1]])
+        reshaped_image_patches = tf.reshape(image_patches, [-1, patch_height, image_size[1], 1])
 
         mask_patches = tf.extract_image_patches([mask],
-                                                ksizes=[1, slice_height, image_size[1], 1],
-                                                strides=[1, slice_height + stride - 1, 1, 1],
+                                                ksizes=[1, patch_height, image_size[1], 1],
+                                                strides=[1, patch_height + stride - 1, 1, 1],
                                                 rates=[1, 1, 1, 1],
                                                 padding="VALID")
-        reshaped_mask_patches = tf.reshape(mask_patches, [-1, slice_height, image_size[1]])
+        reshaped_mask_patches = tf.reshape(mask_patches, [-1, patch_height, image_size[1], 3])
+        # For some reason, channels seem to get reversed by the patch extraction
+        reshaped_mask_patches = tf.reverse(reshaped_mask_patches, axis=[-1])
 
-        return tf.data.Dataset.from_tensor_slices((reshaped_image_patches, reshaped_mask_patches))
+        # In masks, we only care about the center row.
+        cropped_mask_patches = tf.image.crop_to_bounding_box(
+            reshaped_mask_patches, context, context, 1, image_size[1] - context * 2
+        )
+
+        labels = tf.minimum(2, tf.reduce_sum(tf.cast(tf.greater(cropped_mask_patches, 0), tf.int32), axis=-1))
+
+        return tf.data.Dataset.from_tensor_slices((reshaped_image_patches, labels))
 
     image_filenames = tf.constant([os.path.join(dataset_dir, "images", s + ".jpg") for s in names])
     mask_filenames = tf.constant([os.path.join(dataset_dir, "masks", s + ".png") for s in names])
 
     dataset = tf.data.Dataset.from_tensor_slices((image_filenames, mask_filenames))
-    dataset = dataset.map(_parse_function).flat_map(_slice)
-    return dataset.shuffle(1000).batch(10).repeat()
+    dataset = dataset.map(_parse_function).flat_map(_extract_patches)
+
+    if shuffle:
+        dataset = dataset.shuffle(1000)
+
+    return dataset.batch(batch_size).repeat()
 
 
-def make_datasets(dataset_dir, image_size, context=0):
+def make_datasets(dataset_dir, image_size, batch_size=50, context=2, stride=1):
     """
     Takes all masks from `dataset_dir`/masks and their image counterparts
     in `dataset_dir`/images and splits them into a train, dev and test set.
@@ -85,19 +101,36 @@ def make_datasets(dataset_dir, image_size, context=0):
         else:
             to = fr + int(len(names) * part)
 
-        datasets.append(make_dataset(dataset_dir, names[fr:to], image_size, 2))
+        datasets.append(make_dataset(dataset_dir,
+                                     names[fr:to],
+                                     image_size,
+                                     batch_size=batch_size,
+                                     shuffle=(True if i == 0 else False),
+                                     context=context,
+                                     stride=stride))
         fr = to
 
     return datasets
 
 
-# x = make_datasets("data/", [200, 200], 2)[0]
+# x = make_datasets("data/muenster", [200, 200], context=2)[0]
 # sess = tf.Session()
 # next_element = x.make_one_shot_iterator().get_next()
 # value = sess.run(next_element)
 # print(value[0].shape, value[1].shape)
 
 # import cv2
+# import numpy as np
+
+# for i in range(100):
+#     # img = cv2.cvtColor(value[0][i, :, 2:198, :], cv2.COLOR_GRAY2BGR)
+#     img = value[0][i, :, 2:198, :]
+#     print(img.shape)
+#     print(value[1].shape)
+#     cv2.namedWindow("image", cv2.WINDOW_NORMAL)
+#     cv2.imshow('image', np.concatenate([img, value[1][i] * 127], axis=0) / 255)
+#     cv2.waitKey(0)
+
 # cv2.namedWindow("image", cv2.WINDOW_NORMAL)
 # cv2.imshow('image', value[0][1] / 255)
 # cv2.waitKey(0)
