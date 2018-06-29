@@ -9,7 +9,9 @@ setup(
     license="MIT",
     packages=find_packages(),
     install_requires=[
-        "tensorflow == 1.5.0",
+        # When running on GCP, tensorflow is guaranteed via `runtimeVersion: "1.5"`.
+        # Specifying tensorflow version even seems to break GPU access.
+        # "tensorflow == 1.5.0",
         "tqdm == 4.23",
         "google-cloud-storage == 1.10.0",
     ]
