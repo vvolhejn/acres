@@ -6,6 +6,7 @@ logs/
 *.egg-info/
 __pycache__/
 MANIFEST
+*.pyc
 
 # Sublime
 *.sublime-*
