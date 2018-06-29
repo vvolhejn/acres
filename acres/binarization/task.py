@@ -11,7 +11,7 @@ from tensorflow.contrib.training.python.training import hparam
 
 
 def run_experiment(hparams):
-    image_size = [200, 200]
+    image_size = [hparams.image_width, hparams.image_height]
     model_name = get_model_name(hparams)
 
     # Create logdir name (if local, this must exist)
@@ -56,7 +56,7 @@ def run_experiment(hparams):
                                         save_checkpoints_secs=120,
                                         )
 
-    print('model dir {}'.format(run_config.model_dir))
+    print('Model dir: {}'.format(run_config.model_dir))
 
     tf.estimator.train_and_evaluate(model,
                                     train_spec,
@@ -81,12 +81,6 @@ def get_model_name(hparams):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # Input Arguments
-    # parser.add_argument(
-    #     '--train-files',
-    #     help='GCS or local paths to training data',
-    #     nargs='+',
-    #     required=True
-    # )
     parser.add_argument(
         '--batch-size',
         help='Batch size',
@@ -104,6 +98,18 @@ if __name__ == '__main__':
         help='Stride between patches',
         type=int,
         default=1
+    )
+    parser.add_argument(
+        '--image-width',
+        help='Width to which to resize images',
+        type=int,
+        default=800
+    )
+    parser.add_argument(
+        '--image-height',
+        help='Width to which to resize images',
+        type=int,
+        default=600
     )
     # Training arguments
     parser.add_argument(
@@ -151,6 +157,9 @@ if __name__ == '__main__':
     # Set C++ Graph Execution level verbosity
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = str(
         tf.logging.__dict__[args.verbosity] / 10)
+
+    # Log GPU availability
+    print("GPU:", tf.test.gpu_device_name())
 
     # Run the training job
     hparams = hparam.HParams(**args.__dict__)

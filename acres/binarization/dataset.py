@@ -2,6 +2,7 @@ import os
 import random
 
 import tensorflow as tf
+import numpy as np
 
 
 def get_image_names(dataset_dir):
@@ -33,15 +34,76 @@ def make_dataset(dataset_dir, names, image_size, batch_size, shuffle, context, s
     `context` = how many pixels to add around each strip (the strip then has height 1+context*2)
     """
 
-    def _parse_function(image_filename, mask_filename):
+    image_filenames = tf.constant([os.path.join(dataset_dir, "images", s + ".jpg") for s in names])
+    mask_filenames = tf.constant([os.path.join(dataset_dir, "masks", s + ".png") for s in names])
+
+    dataset = tf.data.Dataset.from_tensor_slices((image_filenames, mask_filenames))
+    if shuffle:
+        # Shuffling strings should be cheap enough
+        dataset = dataset.shuffle(10000)
+
+    dataset = (dataset
+               .map(_load_image_and_mask(image_size))
+               .flat_map(_extract_patches(image_size, context, stride))
+               )
+    if shuffle:
+        dataset = dataset.shuffle(1000)
+
+    return dataset.batch(batch_size).repeat()
+
+
+def make_datasets(dataset_dir, image_size, batch_size=50, context=2, stride=1):
+    """
+    Takes all masks from `dataset_dir`/masks and their image counterparts
+    in `dataset_dir`/images and splits them into a train, dev and test set.
+    Returns a tuple: (training set, dev set, test set)
+    """
+
+    # Names of the masks (end with .png) and their images (.jpg)
+    names = [x[:-(len(".png"))] for x in get_image_names(dataset_dir)]
+
+    if not names:
+        raise ValueError("No image names found in {}".format(dataset_dir))
+
+    random.shuffle(names)
+    split = [0.8, 0.1, 0.1]
+    fr = 0
+    datasets = []
+    for i, (part, name) in enumerate(zip(split, names)):
+        if i == len(split) - 1:
+            to = len(names)
+        else:
+            to = fr + int(len(names) * part)
+
+        datasets.append(
+            make_dataset(dataset_dir,
+                         names[fr:to],
+                         image_size,
+                         batch_size=batch_size,
+                         shuffle=(True if i == 0 else False),  # only shuffle the training set
+                         context=context,
+                         stride=stride)
+        )
+        fr = to
+
+    return datasets
+
+
+def _load_image_and_mask(image_size):
+    def _load_image_and_mask_wrapped(image_filename, mask_filename):
         image_decoded = tf.image.decode_jpeg(tf.read_file(image_filename), channels=3)
         image_resized = tf.image.rgb_to_grayscale(tf.image.resize_images(image_decoded, image_size))
 
         mask_decoded = tf.image.decode_jpeg(tf.read_file(mask_filename), channels=3)
         mask_resized = tf.image.resize_images(mask_decoded, image_size)
+
         return image_resized, mask_resized
 
-    def _extract_patches(image, mask):
+    return _load_image_and_mask_wrapped
+
+
+def _extract_patches(image_size, context, stride):
+    def _extract_patches_wrapped(image, mask):
         patch_height = 1 + context * 2
         image_patches = tf.extract_image_patches([image],
                                                  ksizes=[1, patch_height, image_size[1], 1],
@@ -65,72 +127,31 @@ def make_dataset(dataset_dir, names, image_size, batch_size, shuffle, context, s
         )
 
         labels = tf.minimum(2, tf.reduce_sum(tf.cast(tf.greater(cropped_mask_patches, 0), tf.int32), axis=-1))
-
         return tf.data.Dataset.from_tensor_slices((reshaped_image_patches, labels))
 
-    image_filenames = tf.constant([os.path.join(dataset_dir, "images", s + ".jpg") for s in names])
-    mask_filenames = tf.constant([os.path.join(dataset_dir, "masks", s + ".png") for s in names])
+    return _extract_patches_wrapped
 
-    dataset = tf.data.Dataset.from_tensor_slices((image_filenames, mask_filenames))
-    dataset = dataset.map(_parse_function).flat_map(_extract_patches)
-
-    if shuffle:
-        dataset = dataset.shuffle(1000)
-
-    return dataset.batch(batch_size).repeat()
-
-
-def make_datasets(dataset_dir, image_size, batch_size=50, context=2, stride=1):
-    """
-    Takes all masks from `dataset_dir`/masks and their image counterparts
-    in `dataset_dir`/images and splits them into a train, dev and test set.
-    Returns a tuple: (training set, dev set, test set)
-    """
-
-    # Names of the masks (end with .png) and their images (.jpg)
-    names = [x[:-(len(".png"))] for x in get_image_names(dataset_dir)]
-    random.shuffle(names)
-
-    split = [0.8, 0.1, 0.1]
-
-    fr = 0
-    datasets = []
-    for i, (part, name) in enumerate(zip(split, names)):
-        if i == len(split) - 1:
-            to = len(names)
-        else:
-            to = fr + int(len(names) * part)
-
-        datasets.append(make_dataset(dataset_dir,
-                                     names[fr:to],
-                                     image_size,
-                                     batch_size=batch_size,
-                                     shuffle=(True if i == 0 else False),
-                                     context=context,
-                                     stride=stride))
-        fr = to
-
-    return datasets
-
-
-# x = make_datasets("data/muenster", [200, 200], context=2)[0]
-# sess = tf.Session()
-# next_element = x.make_one_shot_iterator().get_next()
-# value = sess.run(next_element)
-# print(value[0].shape, value[1].shape)
 
 # import cv2
 # import numpy as np
 
-# for i in range(100):
-#     # img = cv2.cvtColor(value[0][i, :, 2:198, :], cv2.COLOR_GRAY2BGR)
-#     img = value[0][i, :, 2:198, :]
-#     print(img.shape)
-#     print(value[1].shape)
-#     cv2.namedWindow("image", cv2.WINDOW_NORMAL)
-#     cv2.imshow('image', np.concatenate([img, value[1][i] * 127], axis=0) / 255)
-#     cv2.waitKey(0)
+# x = make_datasets("data/muenster_blur", [300, 400], context=2)[1]
+# sess = tf.Session()
+# next_element = x.make_one_shot_iterator().get_next()
 
-# cv2.namedWindow("image", cv2.WINDOW_NORMAL)
-# cv2.imshow('image', value[0][1] / 255)
-# cv2.waitKey(0)
+# while True:
+#     value = sess.run(next_element)
+#     print(value[0].shape, value[1].shape)
+
+#     # for i in range(100):
+#     #     # img = cv2.cvtColor(value[0][i, :, 2:198, :], cv2.COLOR_GRAY2BGR)
+#     #     img = value[0][i, :, 2:198, :]
+#     #     print(img.shape)
+#     #     print(value[1].shape)
+#     #     cv2.namedWindow("image", cv2.WINDOW_NORMAL)
+#     #     cv2.imshow('image', np.concatenate([img, value[1][i] * 127], axis=0) / 255)
+#     #     cv2.waitKey(0)
+
+#     cv2.namedWindow("image", cv2.WINDOW_NORMAL)
+#     cv2.imshow('image', value[0][1] / 255)
+#     cv2.waitKey(0)
