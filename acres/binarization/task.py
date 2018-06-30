@@ -11,7 +11,7 @@ from tensorflow.contrib.training.python.training import hparam
 
 
 def run_experiment(hparams):
-    image_size = [hparams.image_width, hparams.image_height]
+    image_size = [hparams.image_height, hparams.image_width]
     model_name = get_model_name(hparams)
 
     # Create logdir name (if local, this must exist)
@@ -44,8 +44,7 @@ def run_experiment(hparams):
     train_spec = tf.estimator.TrainSpec(lambda: train.make_one_shot_iterator().get_next(),
                                         max_steps=hparams.train_steps,
                                         )
-    # exporter = tf.estimator.FinalExporter('census',
-    #                                       model.SERVING_FUNCTIONS[hparams.export_format])
+
     eval_spec = tf.estimator.EvalSpec(lambda: dev.make_one_shot_iterator().get_next(),
                                       steps=hparams.eval_steps,
                                       # exporters=[exporter],

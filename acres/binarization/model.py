@@ -14,18 +14,16 @@ NUM_CLASSES = 3
 
 
 def model_fn(features, labels, mode, params, config):
-    conv1 = tf.layers.conv2d(features, filters=8, kernel_size=5,
-                             padding="same", activation=tf.nn.relu)
-    conv2 = tf.layers.conv2d(conv1, filters=16, kernel_size=5,
-                             padding="same", activation=tf.nn.relu)
-    conv3 = tf.layers.conv2d(conv2, filters=32, kernel_size=5,
-                             padding="valid", activation=tf.nn.relu)
-    # conv3t = tf.layers.conv2d_transpose(conv3, filters=16, kernel_size=5, strides=2,
-    #                                     padding="same", activation=tf.nn.relu)
-    # conv2t = tf.layers.conv2d_transpose(conv3t, filters=8, kernel_size=5, strides=2,
-    #                                     padding="same", activation=tf.nn.relu)
+    """
+    Shape of features:    (batch size, 1+2*context, image_width, 1)
+    Shape of predictions: (batch size, image_width-2*context)
+    """
+    context = params.get("context")  # Number of rows above and below target in features
+    logits = strided_model(features, context)
 
-    logits = tf.layers.conv2d(conv3, filters=NUM_CLASSES, kernel_size=3, padding="same", activation=None)
+    num_params = np.sum([np.product([xi.value for xi in x.get_shape()]) for x in tf.all_variables()])
+    print("Number of parameters: {}".format(num_params))
+
     predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -88,11 +86,10 @@ def model_fn(features, labels, mode, params, config):
         # image_features = tf.concat(features, axis=0)
         image_features = tf.reshape(tf.concat(features, axis=0),
                                     [1, -1, params.get("image_size")[1], 1])
-        context = params.get("context")
         image_w = params.get("image_size")[1] - 2 * context
         image_h = tf.shape(image_features)[1]
 
-        image_features = tf.cast(image_features, tf.float32)
+        # image_features = tf.cast(image_features, tf.float32)
         tf.summary.image("features", image_features)
 
         image_prediction = tf.reshape(tf.concat(predictions, axis=0),
@@ -105,14 +102,14 @@ def model_fn(features, labels, mode, params, config):
 
         image_features = tf.image.crop_to_bounding_box(image_features, 0, context, image_h, image_w)
         masked_image = tf.concat(
-            [image_prediction[0:1] * 100,
+            [image_prediction[0:1] * 127,
              image_features[0:1],
              image_features[0:1]],
             axis=3)
 
-        print(image_features.get_shape())
-        print(image_prediction.get_shape())
-        print(masked_image.get_shape())
+        # print(image_features.get_shape())
+        # print(image_prediction.get_shape())
+        # print(masked_image.get_shape())
 
         tf.summary.image("masked", masked_image)
 
@@ -125,3 +122,36 @@ def model_fn(features, labels, mode, params, config):
         return tf.estimator.EstimatorSpec(mode, predictions, loss,
                                           eval_metric_ops=eval_metric_ops,
                                           evaluation_hooks=[eval_summary_hook])
+
+
+def baseline_model(features, context):
+    # Number of parameters: 16548
+    conv1 = tf.layers.conv2d(features, filters=8, kernel_size=5,
+                             padding="same", activation=tf.nn.relu)
+    conv2 = tf.layers.conv2d(conv1, filters=16, kernel_size=5,
+                             padding="same", activation=tf.nn.relu)
+    conv3 = tf.layers.conv2d(conv2, filters=32, kernel_size=context * 2 + 1,
+                             padding="valid", activation=tf.nn.relu)
+    conv3_flat = tf.squeeze(conv3, axis=[1])
+    logits = tf.layers.conv1d(conv3_flat, filters=NUM_CLASSES, kernel_size=3, padding="same", activation=None)
+    return logits
+
+
+def strided_model(features, context):
+    preconv1 = tf.layers.conv2d(features, filters=16, kernel_size=5,
+                                padding="same", activation=tf.nn.relu)
+    preconv2 = tf.layers.conv2d(preconv1, filters=16, kernel_size=(context * 2 + 1),
+                                padding="valid", activation=tf.nn.relu)
+
+    downscale1 = tf.layers.conv2d(preconv2, filters=32, kernel_size=5, strides=2,
+                                  padding="same", activation=tf.nn.relu)
+    downscale2 = tf.layers.conv2d(downscale1, filters=64, kernel_size=5, strides=2,
+                                  padding="same", activation=tf.nn.relu)
+    upscale1 = tf.layers.conv2d_transpose(downscale2, filters=32, kernel_size=5, strides=[1, 2],
+                                          padding="same", activation=tf.nn.relu)
+    upscale2 = tf.layers.conv2d_transpose(upscale1, filters=16, kernel_size=5, strides=[1, 2],
+                                          padding="same", activation=tf.nn.relu)
+    logits = tf.layers.conv2d(upscale2 + preconv2,
+                              filters=NUM_CLASSES, kernel_size=3, padding="same", activation=None)
+    logits = tf.squeeze(logits, axis=[1])
+    return logits

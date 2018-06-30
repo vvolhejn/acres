@@ -92,6 +92,7 @@ def make_datasets(dataset_dir, image_size, batch_size=50, context=2, stride=1):
 def _load_image_and_mask(image_size):
     def _load_image_and_mask_wrapped(image_filename, mask_filename):
         image_decoded = tf.image.decode_jpeg(tf.read_file(image_filename), channels=3)
+        # Dividing image values by 255 reduces the performance for some reason.
         image_resized = tf.image.rgb_to_grayscale(tf.image.resize_images(image_decoded, image_size))
 
         mask_decoded = tf.image.decode_jpeg(tf.read_file(mask_filename), channels=3)
@@ -126,32 +127,32 @@ def _extract_patches(image_size, context, stride):
             reshaped_mask_patches, context, context, 1, image_size[1] - context * 2
         )
 
-        labels = tf.minimum(2, tf.reduce_sum(tf.cast(tf.greater(cropped_mask_patches, 0), tf.int32), axis=-1))
+        labels = tf.minimum(
+            2,
+            tf.reduce_sum(tf.cast(tf.greater(cropped_mask_patches, 0), tf.int32), axis=-1)
+        )
+        # Get rid of the width dimension
+        labels = tf.squeeze(labels, axis=[1])
+
         return tf.data.Dataset.from_tensor_slices((reshaped_image_patches, labels))
 
     return _extract_patches_wrapped
 
 
-# import cv2
-# import numpy as np
+if __name__ == '__main__':
+    import cv2
+    import numpy as np
 
-# x = make_datasets("data/muenster_blur", [300, 400], context=2)[1]
-# sess = tf.Session()
-# next_element = x.make_one_shot_iterator().get_next()
+    x = make_datasets("data/muenster_blur", [300, 400], context=2)[0]
+    sess = tf.Session()
+    next_element = x.make_one_shot_iterator().get_next()
 
-# while True:
-#     value = sess.run(next_element)
-#     print(value[0].shape, value[1].shape)
+    while True:
+        x, y = sess.run(next_element)
+        print(x.shape, y.shape)
+        print(x.dtype)
+        print(np.min(x), np.max(x))
 
-#     # for i in range(100):
-#     #     # img = cv2.cvtColor(value[0][i, :, 2:198, :], cv2.COLOR_GRAY2BGR)
-#     #     img = value[0][i, :, 2:198, :]
-#     #     print(img.shape)
-#     #     print(value[1].shape)
-#     #     cv2.namedWindow("image", cv2.WINDOW_NORMAL)
-#     #     cv2.imshow('image', np.concatenate([img, value[1][i] * 127], axis=0) / 255)
-#     #     cv2.waitKey(0)
-
-#     cv2.namedWindow("image", cv2.WINDOW_NORMAL)
-#     cv2.imshow('image', value[0][1] / 255)
-#     cv2.waitKey(0)
+        cv2.namedWindow("image", cv2.WINDOW_NORMAL)
+        cv2.imshow('image', np.concatenate(x * 127, axis=0) / 255)
+        cv2.waitKey(0)
