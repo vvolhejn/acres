@@ -127,32 +127,16 @@ def _extract_patches(image_size, context, stride):
             reshaped_mask_patches, context, context, 1, image_size[1] - context * 2
         )
 
+        # outside = #000, black = #F00, white = #FFF, this makes the labels [outside, black, white]
         labels = tf.minimum(
             2,
             tf.reduce_sum(tf.cast(tf.greater(cropped_mask_patches, 0), tf.int32), axis=-1)
         )
+        # This swaps labels 0 and 1 so we get [black, outside, white]. Simplifies visualization.
+        labels = (4 - labels * 2) % 3
         # Get rid of the width dimension
         labels = tf.squeeze(labels, axis=[1])
 
         return tf.data.Dataset.from_tensor_slices((reshaped_image_patches, labels))
 
     return _extract_patches_wrapped
-
-
-if __name__ == '__main__':
-    import cv2
-    import numpy as np
-
-    x = make_datasets("data/muenster_blur", [300, 400], context=2)[0]
-    sess = tf.Session()
-    next_element = x.make_one_shot_iterator().get_next()
-
-    while True:
-        x, y = sess.run(next_element)
-        print(x.shape, y.shape)
-        print(x.dtype)
-        print(np.min(x), np.max(x))
-
-        cv2.namedWindow("image", cv2.WINDOW_NORMAL)
-        cv2.imshow('image', np.concatenate(x * 127, axis=0) / 255)
-        cv2.waitKey(0)

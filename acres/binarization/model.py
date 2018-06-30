@@ -21,7 +21,7 @@ def model_fn(features, labels, mode, params, config):
     context = params.get("context")  # Number of rows above and below target in features
     logits = strided_model(features, context)
 
-    num_params = np.sum([np.product([xi.value for xi in x.get_shape()]) for x in tf.all_variables()])
+    num_params = np.sum([np.product([xi.value for xi in x.get_shape()]) for x in tf.global_variables()])
     print("Number of parameters: {}".format(num_params))
 
     predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
@@ -101,16 +101,16 @@ def model_fn(features, labels, mode, params, config):
         image_prediction = tf.image.resize_images(image_prediction, [image_h, image_w])
 
         image_features = tf.image.crop_to_bounding_box(image_features, 0, context, image_h, image_w)
-        masked_image = tf.concat(
-            [image_prediction[0:1] * 127,
-             image_features[0:1],
-             image_features[0:1]],
-            axis=3)
 
-        # print(image_features.get_shape())
-        # print(image_prediction.get_shape())
-        # print(masked_image.get_shape())
+        image_features_colored = tf.image.grayscale_to_rgb(image_features[0:1])
+        image_prediction_colored = 255 * tf.concat([(image_prediction[0:1]),
+                                                    (2. - image_prediction[0:1]),
+                                                    (2. - image_prediction[0:1])],
+                                                   axis=3)
 
+        MASK_WEIGHT = 0.25
+        masked_image = (MASK_WEIGHT * image_prediction_colored +
+                        (1 - MASK_WEIGHT) * image_features_colored)
         tf.summary.image("masked", masked_image)
 
         # Hack to make TF produce images in eval mode as well.
