@@ -24,12 +24,15 @@ def run_experiment(hparams):
         config=tf.estimator.RunConfig(tf_random_seed=42,
                                       session_config=tf.ConfigProto(
                                           inter_op_parallelism_threads=hparams.threads,
-                                          intra_op_parallelism_threads=hparams.threads)),
+                                          intra_op_parallelism_threads=hparams.threads),
+                                      save_checkpoints_secs=120),
         params={
-            "optimizer": tf.train.AdamOptimizer,
-            "learning_rate": 0.001,
+            "initial_learning_rate": 0.001,
+            "learning_rate_decay_steps": 15000,
             "image_size": image_size,
             "context": hparams.patch_context,
+            "network_name": hparams.network_name,
+            "change_penalty": hparams.change_penalty
         })
 
     train, dev, test = dataset.make_datasets(hparams.dataset_dir,
@@ -40,9 +43,12 @@ def run_experiment(hparams):
                                              )
 
     """Run the training and evaluate using the high level API"""
+    # TODO: ProfilerHook breaks with GPU on GCP - why?
+    # profiler_hook = tf.train.ProfilerHook(save_steps=50, output_dir=logdir)
 
     train_spec = tf.estimator.TrainSpec(lambda: train.make_one_shot_iterator().get_next(),
                                         max_steps=hparams.train_steps,
+                                        # hooks=[profiler_hook]
                                         )
 
     eval_spec = tf.estimator.EvalSpec(lambda: dev.make_one_shot_iterator().get_next(),
@@ -50,12 +56,6 @@ def run_experiment(hparams):
                                       # exporters=[exporter],
                                       name="dev",
                                       )
-
-    run_config = tf.estimator.RunConfig(model_dir=logdir,
-                                        save_checkpoints_secs=120,
-                                        )
-
-    print('Model dir: {}'.format(run_config.model_dir))
 
     tf.estimator.train_and_evaluate(model,
                                     train_spec,
@@ -77,61 +77,73 @@ def get_model_name(hparams):
     )
     return model_name
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # Input Arguments
     parser.add_argument(
-        '--batch-size',
-        help='Batch size',
+        "--network-name",
+        help="Name of the network to use.",
+        type=str,
+        default="baseline"
+    )
+    parser.add_argument(
+        "--batch-size",
+        help="Batch size",
         type=int,
         default=40
     )
     parser.add_argument(
-        '--patch-context',
-        help='How many pixels of "context" to add around each patch',
+        "--patch-context",
+        help="How many pixels of 'context' to add around each patch",
         type=int,
         default=2
     )
     parser.add_argument(
-        '--patch-stride',
-        help='Stride between patches',
+        "--patch-stride",
+        help="Stride between patches",
         type=int,
         default=1
     )
     parser.add_argument(
-        '--image-width',
-        help='Width to which to resize images',
+        "--image-width",
+        help="Width to which to resize images",
         type=int,
         default=800
     )
     parser.add_argument(
-        '--image-height',
-        help='Width to which to resize images',
+        "--image-height",
+        help="Width to which to resize images",
         type=int,
         default=600
     )
+    parser.add_argument(
+        "--change-penalty",
+        help="Weight of penalization for the prediction changing values",
+        type=float,
+        default=0.0
+    )
     # Training arguments
     parser.add_argument(
-        '--job-dir',
-        help='GCS location to write checkpoints and export models',
+        "--job-dir",
+        help="GCS location to write checkpoints and export models",
         required=True
     )
 
     # Argument to turn on all logging
     parser.add_argument(
-        '--verbosity',
+        "--verbosity",
         choices=[
-            'DEBUG',
-            'ERROR',
-            'FATAL',
-            'INFO',
-            'WARN'
+            "DEBUG",
+            "ERROR",
+            "FATAL",
+            "INFO",
+            "WARN"
         ],
-        default='INFO',
+        default="INFO",
     )
     # Experiment arguments
     parser.add_argument(
-        '--train-steps',
+        "--train-steps",
         help="""\
       Steps to run the training job for. If --num-epochs is not specified,
       this must be. Otherwise the training job will run indefinitely.\
@@ -139,8 +151,8 @@ if __name__ == '__main__':
         type=int
     )
     parser.add_argument(
-        '--eval-steps',
-        help='Number of steps to run evalution for at each checkpoint',
+        "--eval-steps",
+        help="Number of steps to run evalution for at each checkpoint",
         default=10,
         type=int
     )
@@ -154,7 +166,7 @@ if __name__ == '__main__':
     # Set python level verbosity
     tf.logging.set_verbosity(args.verbosity)
     # Set C++ Graph Execution level verbosity
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = str(
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = str(
         tf.logging.__dict__[args.verbosity] / 10)
 
     # Log GPU availability
