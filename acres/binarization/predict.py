@@ -3,24 +3,26 @@ import os
 import datetime
 import re
 
-from .model import model_fn
-from . import dataset
-
+import tqdm
+import cv2
+import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.training.python.training import hparam
+
+from .model import model_fn
+from . import dataset
 
 
 def run_experiment(hparams):
     image_size = [hparams.image_height, hparams.image_width]
-    model_name = get_model_name(hparams)
-
+    # model_name = get_model_name(hparams)
     # Create logdir name (if local, this must exist)
-    logdir = os.path.join(hparams.job_dir, model_name)
+    model_dir = os.path.join(hparams.job_dir, hparams.model_name)
 
     # Construct the model
     model = tf.estimator.Estimator(
         model_fn=model_fn,
-        model_dir=logdir,
+        model_dir=model_dir,
         config=tf.estimator.RunConfig(tf_random_seed=42,
                                       session_config=tf.ConfigProto(
                                           inter_op_parallelism_threads=hparams.threads,
@@ -42,25 +44,25 @@ def run_experiment(hparams):
                                          stride=hparams.patch_stride,
                                          )
     train, dev, test = dataset_dict["datasets"]
+    _, _, test_image_names = dataset_dict["image_names"]
 
-    """Run the training and evaluate using the high level API"""
-    # TODO: ProfilerHook breaks with GPU on GCP - why?
-    # profiler_hook = tf.train.ProfilerHook(save_steps=50, output_dir=logdir)
+    predictions_generator = model.predict(input_fn=lambda: test.make_one_shot_iterator().get_next())
+    # It is unknown whether this computation is correct when the numbers are not divisible
+    predictions_per_image = hparams.image_height // (hparams.patch_context * 2 + hparams.patch_stride)
 
-    train_spec = tf.estimator.TrainSpec(lambda: train.make_one_shot_iterator().get_next(),
-                                        max_steps=hparams.train_steps,
-                                        # hooks=[profiler_hook]
-                                        )
+    os.makedirs(os.path.join(model_dir, "predictions"), exist_ok=True)
 
-    eval_spec = tf.estimator.EvalSpec(lambda: dev.make_one_shot_iterator().get_next(),
-                                      steps=hparams.eval_steps,
-                                      # exporters=[exporter],
-                                      name="dev",
-                                      )
+    for image_name in tqdm.tqdm(test_image_names):
+        cur_predictions = []
+        for _ in range(predictions_per_image):
+            cur_predictions.append(next(predictions_generator))
 
-    tf.estimator.train_and_evaluate(model,
-                                    train_spec,
-                                    eval_spec)
+        cur_predictions = np.array(cur_predictions)
+
+        # cv2.namedWindow("image", cv2.WINDOW_NORMAL)
+        # cv2.imshow('image', (cur_predictions * 127).astype(np.uint8))
+        # cv2.waitKey(0)
+        cv2.imwrite(os.path.join(model_dir, "predictions", image_name + ".png"), (cur_predictions * 127).astype(np.uint8))
 
 
 def get_model_name(hparams):
@@ -91,7 +93,7 @@ if __name__ == "__main__":
         "--batch-size",
         help="Batch size",
         type=int,
-        default=40
+        default=50
     )
     parser.add_argument(
         "--patch-context",
@@ -129,6 +131,11 @@ if __name__ == "__main__":
         help="GCS location to write checkpoints and export models",
         required=True
     )
+    parser.add_argument(
+        "--model-name",
+        help="Name of the model to predict with.",
+        required=True
+    )
 
     # Argument to turn on all logging
     parser.add_argument(
@@ -141,21 +148,6 @@ if __name__ == "__main__":
             "WARN"
         ],
         default="INFO",
-    )
-    # Experiment arguments
-    parser.add_argument(
-        "--train-steps",
-        help="""\
-      Steps to run the training job for. If --num-epochs is not specified,
-      this must be. Otherwise the training job will run indefinitely.\
-      """,
-        type=int
-    )
-    parser.add_argument(
-        "--eval-steps",
-        help="Number of steps to run evalution for at each checkpoint",
-        default=10,
-        type=int
     )
 
     parser.add_argument("--dataset-dir", default="data/", type=str, help="Dataset directory.")

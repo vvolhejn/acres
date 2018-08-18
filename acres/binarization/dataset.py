@@ -27,7 +27,7 @@ def get_image_names(dataset_dir):
         return os.listdir(os.path.join(dataset_dir, "masks"))
 
 
-def make_dataset(dataset_dir, names, image_size, batch_size, shuffle, context, stride):
+def make_dataset(dataset_dir, names, image_size, batch_size, shuffle, context, stride, repeat):
     """
     Creates one dataset out of the files in `dataset_dir` with names `names`.
     `image_size` = [image height, image width]
@@ -49,10 +49,13 @@ def make_dataset(dataset_dir, names, image_size, batch_size, shuffle, context, s
     if shuffle:
         dataset = dataset.shuffle(1000)
 
-    return dataset.batch(batch_size).repeat()
+    dataset = dataset.batch(batch_size)
+    if repeat:
+        dataset = dataset.repeat()
+    return dataset
 
 
-def make_datasets(dataset_dir, image_size, batch_size=50, context=2, stride=1):
+def make_datasets(dataset_dir, image_size, batch_size, context=2, stride=1):
     """
     Takes all masks from `dataset_dir`/masks and their image counterparts
     in `dataset_dir`/images and splits them into a train, dev and test set.
@@ -69,12 +72,13 @@ def make_datasets(dataset_dir, image_size, batch_size=50, context=2, stride=1):
     split = [0.8, 0.1, 0.1]
     fr = 0
     datasets = []
+    dataset_image_names = []
     for i, (part, name) in enumerate(zip(split, names)):
         if i == len(split) - 1:
             to = len(names)
         else:
             to = fr + int(len(names) * part)
-
+        dataset_image_names.append(names[fr:to])
         datasets.append(
             make_dataset(dataset_dir,
                          names[fr:to],
@@ -82,11 +86,15 @@ def make_datasets(dataset_dir, image_size, batch_size=50, context=2, stride=1):
                          batch_size=batch_size,
                          shuffle=(True if i == 0 else False),  # only shuffle the training set
                          context=context,
-                         stride=stride)
+                         stride=stride,
+                         repeat=(False if i == 2 else True))  # do not repeat the test set
         )
         fr = to
 
-    return datasets
+    return {
+        "datasets": datasets,
+        "image_names": dataset_image_names,
+    }
 
 
 def _load_image_and_mask(image_size):
