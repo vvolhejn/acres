@@ -2,7 +2,6 @@ import os
 import random
 
 import tensorflow as tf
-import numpy as np
 
 
 def get_image_names(dataset_dir):
@@ -55,7 +54,7 @@ def make_dataset(dataset_dir, names, image_size, batch_size, shuffle, context, s
     return dataset
 
 
-def make_datasets(dataset_dir, image_size, batch_size, context=2, stride=1):
+def make_datasets(dataset_dir, image_size, batch_size, context=2, stride=1, seed=None):
     """
     Takes all masks from `dataset_dir`/masks and their image counterparts
     in `dataset_dir`/images and splits them into a train, dev and test set.
@@ -68,6 +67,7 @@ def make_datasets(dataset_dir, image_size, batch_size, context=2, stride=1):
     if not names:
         raise ValueError("No image names found in {}".format(dataset_dir))
 
+    random.seed(seed)
     random.shuffle(names)
     split = [0.8, 0.1, 0.1]
     fr = 0

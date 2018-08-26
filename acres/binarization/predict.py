@@ -10,6 +10,7 @@ import tensorflow as tf
 from tensorflow.contrib.training.python.training import hparam
 
 from .model import model_fn
+from .task import SEED
 from . import dataset
 
 
@@ -42,6 +43,7 @@ def run_experiment(hparams):
                                          batch_size=hparams.batch_size,
                                          context=hparams.patch_context,
                                          stride=hparams.patch_stride,
+                                         seed=SEED,  # This
                                          )
     train, dev, test = dataset_dict["datasets"]
     _, _, test_image_names = dataset_dict["image_names"]
@@ -56,13 +58,13 @@ def run_experiment(hparams):
         cur_predictions = []
         for _ in range(predictions_per_image):
             cur_predictions.append(next(predictions_generator))
-
         cur_predictions = np.array(cur_predictions)
 
         # cv2.namedWindow("image", cv2.WINDOW_NORMAL)
-        # cv2.imshow('image', (cur_predictions * 127).astype(np.uint8))
+        # cv2.imshow('image', (cur_predictions * 255).astype(np.uint8))
         # cv2.waitKey(0)
-        cv2.imwrite(os.path.join(model_dir, "predictions", image_name + ".png"), (cur_predictions * 127).astype(np.uint8))
+
+        cv2.imwrite(os.path.join(model_dir, "predictions", image_name + ".png"), (cur_predictions * 255).astype(np.uint8))
 
 
 def get_model_name(hparams):
@@ -79,6 +81,7 @@ def get_model_name(hparams):
                   for key, value in filtered_hparams))
     )
     return model_name
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

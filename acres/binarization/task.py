@@ -9,6 +9,8 @@ from . import dataset
 import tensorflow as tf
 from tensorflow.contrib.training.python.training import hparam
 
+SEED = 592  # Random seed used for dataset splitting; used for consistency in predict.py
+
 
 def run_experiment(hparams):
     image_size = [hparams.image_height, hparams.image_width]
@@ -40,6 +42,7 @@ def run_experiment(hparams):
                                          batch_size=hparams.batch_size,
                                          context=hparams.patch_context,
                                          stride=hparams.patch_stride,
+                                         seed=592,
                                          )
     train, dev, test = dataset_dict["datasets"]
 

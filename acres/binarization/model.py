@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
-import argparse
-import datetime
-import os
-import re
-
 import numpy as np
 import tensorflow as tf
-import tqdm
-
-from . import dataset
 
 NUM_CLASSES = 3
 
@@ -38,7 +30,8 @@ def model_fn(features, labels, mode, params, config):
     predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
-        return tf.estimator.EstimatorSpec(mode, predictions)  # predictions
+        predictions_continuous = tf.nn.softmax(logits)
+        return tf.estimator.EstimatorSpec(mode, predictions_continuous)  # predictions
 
     cross_entropy_loss = tf.losses.sparse_softmax_cross_entropy(labels, logits)
     change_loss = tf.reduce_mean(tf.cast(tf.not_equal(predictions[1:], predictions[:-1]), tf.float32))
@@ -56,11 +49,6 @@ def model_fn(features, labels, mode, params, config):
                                                 predictions=predictions,
                                                 weights=binarization_accuracy_mask,
                                                 name="binarization_accuracy_op")
-
-    # iou = tf.metrics.mean_iou(labels=tf.cast(labels, tf.int32),
-    #                           predictions=tf.cast(predictions, tf.int32),
-    #                           num_classes=2,
-    #                           name="iou_op")
 
     # tf.summary.scalar("iou", iou[1][1][1]) # TODO: This doesn't seem to work right. Why?
 
