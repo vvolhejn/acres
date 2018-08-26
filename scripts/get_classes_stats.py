@@ -1,3 +1,6 @@
+"""
+Given a directory of input mask images, compute the representation of the different classes.
+"""
 import argparse
 import os
 
@@ -27,8 +30,7 @@ def main(masks_dir):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=("Given a directory of input mask images, "
-                                                  "compute some statistics about the dataset"))
+    parser = argparse.ArgumentParser()
     parser.add_argument("masks_dir", type=str, help="Path to masks")
     args = parser.parse_args()
     main(args.masks_dir)

@@ -1,3 +1,7 @@
+"""
+Take a directory of images and their segmentation masks (which only contain two classes - inside and outside)
+and split the inside class into black and white. Save the resulting masks.
+"""
 import argparse
 import os
 
@@ -38,17 +42,15 @@ def main():
         image = cv2.imread(os.path.join(args.images_dir, name + ".jpg"), cv2.IMREAD_GRAYSCALE)
         mask = cv2.imread(os.path.join(args.masks_dir, name + ".png"), cv2.IMREAD_GRAYSCALE)
         _, mask_bw = cv2.threshold(mask, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-        # cv2.imshow("image", image)
-        # cv2.waitKey(0)
+
         image_binary = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                              cv2.THRESH_BINARY, 21, 1)
         image_rgb = cv2.cvtColor(image_binary, cv2.COLOR_GRAY2RGB)
         image_rgb[:, :, 0] = 255  # Seems to be blue here.
         image_rgb = image_rgb * np.expand_dims(mask_bw != 0, 2)
 
-        # cv2.imshow("image", image_rgb)
-        # cv2.waitKey(0)
         if is_vertical(image_rgb):
+            # Filter out barcodes with the incorrect orientation
             cv2.imwrite(os.path.join(args.output_dir, name + ".png"), image_rgb)
 
 

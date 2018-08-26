@@ -1,5 +1,6 @@
 """
-The Muenster DB image masks were 640x480 and we want 800x600
+Take each mask in a directory and resize it to 800x600.
+The Muenster DB image masks (from ArteLab) were 640x480 and we want 800x600.
 """
 import argparse
 import os
