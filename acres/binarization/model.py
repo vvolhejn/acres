@@ -3,79 +3,68 @@ import numpy as np
 import tensorflow as tf
 
 NUM_CLASSES = 3
+ALLOWED_NETWORK_NAMES = ["baseline", "strided", "strided32"]
 
 
 def model_fn(features, labels, mode, params, config):
     """
+    A function representing our network. Used in the tf.Estimator API; follows the required signature.
+
     Shape of features:    (batch size, 1+2*context, image_width, 1)
     Shape of predictions: (batch size, image_width-2*context)
     """
-    context = params.get("context")  # Number of rows above and below target in features
+    context = params["context"]  # Number of rows above and below target in features
 
+    # Select the network function to use based on `params`.
+    network_name = params["network_name"]
+    if network_name not in ALLOWED_NETWORK_NAMES:
+        raise ValueError("network_name must be one of: {}".format(ALLOWED_NETWORK_NAMES))
     network_dict = {
         "baseline": baseline_network,
         "strided": strided_network,
         "strided32": strided32_network,
     }
-    network_name = params.get("network_name")
-    if network_name not in network_dict:
-        raise ValueError("network_name must be one of: {}".format(list(network_dict.keys())))
-
     network = network_dict[network_name]
-    logits = network(features, context, params.get("image_size")[1])
 
     num_params = np.sum([np.product([xi.value for xi in x.get_shape()]) for x in tf.global_variables()])
     print("Number of parameters: {}".format(num_params))
 
+    # Perform prediction using the network function.
+    logits = network(features, context, params.get("image_size")[1])
     predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
 
+    # If we are predicting, there are no labels and therefore we must return now.
     if mode == tf.estimator.ModeKeys.PREDICT:
         predictions_continuous = tf.nn.softmax(logits)
-        return tf.estimator.EstimatorSpec(mode, predictions_continuous)  # predictions
+        return tf.estimator.EstimatorSpec(mode, predictions_continuous)
 
-    cross_entropy_loss = tf.losses.sparse_softmax_cross_entropy(labels, logits)
-    change_loss = tf.reduce_mean(tf.cast(tf.not_equal(predictions[1:], predictions[:-1]), tf.float32))
-    loss = cross_entropy_loss + params.get("change_penalty") * change_loss
-
+    # Calculate metrics for Tensorboard
     accuracy = tf.metrics.accuracy(labels=labels,
                                    predictions=predictions,
                                    name="accuracy_op")
-
-    # Ignore correct predictions of background which inflate the accuracy
+    # Binarization accuracy ignores correct predictions of background which inflate the accuracy
     binarization_accuracy_mask = 1.0 - (tf.cast(tf.equal(labels, 1), tf.float32) *
                                         tf.cast(tf.equal(predictions, 1), tf.float32))
-
     binarization_accuracy = tf.metrics.accuracy(labels=labels,
                                                 predictions=predictions,
                                                 weights=binarization_accuracy_mask,
                                                 name="binarization_accuracy_op")
-
-    # tf.summary.scalar("iou", iou[1][1][1]) # TODO: This doesn't seem to work right. Why?
-
-    flat_labels = tf.reshape(labels, [-1])
-    flat_predictions = tf.reshape(predictions, [-1])
-    tf.summary.image(
-        "confusion",
-        tf.reshape(tf.confusion_matrix(flat_labels,
-                                       flat_predictions,
-                                       num_classes=NUM_CLASSES,
-                                       # zero out correct predictions
-                                       weights=tf.not_equal(flat_labels, flat_predictions),
-                                       dtype=tf.float32),
-                   [1, NUM_CLASSES, NUM_CLASSES, 1]),
-        max_outputs=10,
-    )
-
     eval_metric_ops = {
         "accuracy": accuracy,
         "binarization_accuracy": binarization_accuracy,
-        # "iou": iou,
     }
 
+    cross_entropy_loss = tf.losses.sparse_softmax_cross_entropy(labels, logits)
+    # Punish the network for changing its predictions between consecutive pixels.
+    change_loss = tf.reduce_mean(tf.cast(tf.not_equal(predictions[1:], predictions[:-1]), tf.float32))
+    loss = cross_entropy_loss + params.get("change_penalty") * change_loss
+
     if mode == tf.estimator.ModeKeys.TRAIN:
+        # Ensure the metrics are evaluated on the training set as well.
         for name, (metric_value, update_op) in eval_metric_ops.items():
             tf.summary.scalar(name, update_op)
 
+        # Decay the learning rate.
         learning_rate = tf.train.exponential_decay(
             learning_rate=params["initial_learning_rate"],
             global_step=tf.train.get_global_step(),
@@ -90,17 +79,14 @@ def model_fn(features, labels, mode, params, config):
                                           eval_metric_ops=eval_metric_ops)
 
     elif mode == tf.estimator.ModeKeys.EVAL:
-        # image_features = tf.concat(features, axis=0)
+        # When evaluating, produce images to visualise the predictions. This allows us to see the network's
+        # performance during training in an intuitive way.
         image_features = tf.reshape(tf.concat(features, axis=0),
                                     [1, -1, params.get("image_size")[1], 1])
         image_w = params.get("image_size")[1] - 2 * context
         image_h = tf.shape(image_features)[1]
 
-        # image_features = tf.cast(image_features, tf.float32)
-        tf.summary.image("features", image_features)
-
-        image_prediction = tf.reshape(tf.concat(predictions, axis=0),
-                                      [1, -1, image_w, 1])
+        image_prediction = tf.reshape(tf.concat(predictions, axis=0), [1, -1, image_w, 1])
         image_prediction = tf.cast(image_prediction, tf.float32)
 
         tf.summary.image("prediction", image_prediction)
@@ -166,6 +152,9 @@ def strided_network(features, context, width):
 
 
 def strided32_network(features, context, width):
+    # The deepest network.
+    # This network assumes the image width is divisible by 32 - we use 800px in practice.
+
     preconv1 = tf.layers.conv2d(features, filters=16, kernel_size=5,
                                 padding="same", activation=tf.nn.relu)
     preconv2 = tf.layers.conv2d(preconv1, filters=32, kernel_size=(context * 2 + 1),
@@ -181,7 +170,9 @@ def strided32_network(features, context, width):
                                   padding="same", activation=tf.nn.relu)
     downscale5 = tf.layers.conv2d(downscale4, filters=32, kernel_size=[1, 5], strides=2,
                                   padding="same", activation=tf.nn.relu)
+    # The most downscaled layer, `downscaled5`, has a width of only 1/32 of the original image.
 
+    # Upscale the deeper layers back to the target width.
     upscale5 = tf.layers.conv2d_transpose(
         downscale5, filters=32, kernel_size=[1, 5], strides=[1, 32],
         padding="same", activation=tf.nn.relu
@@ -195,6 +186,8 @@ def strided32_network(features, context, width):
         padding="same", activation=tf.nn.relu
     )[:, :, context:width - context, :]
 
+    # Combining the masks of various granularity should give the network information about
+    # multiple scales, enabling it to make precise predictions.
     postconv1 = tf.layers.conv2d(preconv2 + upscale5 + upscale4 + upscale3,
                                  filters=32, kernel_size=[1, 5], padding="same", activation=tf.nn.relu)
     logits = tf.layers.conv2d(postconv1,
