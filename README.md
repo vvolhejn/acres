@@ -14,14 +14,20 @@ The network takes an image and performs segmentation; for every pixel, it tries 
 
 ### Input image
 ![Input image](./doc/33_4009418180416-01_N95-2592x1944_scaledTo800x600bilinear.jpg)
-### Prediction
-![Prediction](./doc/33_4009418180416-01_N95-2592x1944_scaledTo800x600bilinear_prediction.png)
-### Ground truth - what the network would output in the ideal case
-![Ground truth](./doc/33_4009418180416-01_N95-2592x1944_scaledTo800x600bilinear_ground_truth.png)
+### Unblurred image
+![Unblurred image](./doc/33_4009418180416-01_N95-2592x1944_scaledTo800x600bilinear_masked.jpg)
+### Prediction mask
+![Prediction mask](./doc/33_4009418180416-01_N95-2592x1944_scaledTo800x600bilinear_prediction.png)
+### Ground truth mask - what the network would output in the ideal case
+![Ground truth mask](./doc/33_4009418180416-01_N95-2592x1944_scaledTo800x600bilinear_ground_truth.png)
 
 Even though the image is heavily blurred, the network manages to extract a reasonable prediction.
 
 ## Installation
+We use [Git Large File Storage](https://git-lfs.github.com/) to store the dataset in the repo.
+Please install Git LFS and then clone this repo using `git lfs clone` rather than `git clone`
+for better performance.
+
 acres requires Python 3.4 or higher. We recommend to use virtualenv for
 installation; the `install.sh` script should install the package in this way.
 Certain scripts in the `scripts` directory also require OpenCV (which must be
@@ -71,3 +77,30 @@ gcloud ml-engine jobs submit training example_acres_training_(date "+%Y_%m_%d_%H
 ```
 
 ### Predictions
+Assuming you ran the command from the _Local training_ section, you can predict the test set with the following command.
+Replace the `--model-name` argument with the name of the subdirectory created in `logs/example`, which is where the trained model's
+weights are saved.
+```
+python -m acres.binarization.predict \
+    --job-dir logs/example/ \
+    --network-name strided32 \
+    --dataset-dir data/muenster_blur/ \
+    --batch-size 50 \
+    --model-name task.py-2018-01-01_123456-my-model-name
+```
+The command will create a `predictions` subdirectory in the model's directory containing the predictions for the test set
+(which is an automatically chosen subset of the images in `--dataset-dir`). For each pixel, the probabilities of the classes
+are encoded as RGB:
+
+- Red: White part of a barcode
+- Green: Not in a barcode
+- Blue: Black part of a barcode
+
+There is also a module which can take the predictions and use them to unblur the input images:
+```
+mkdir -p results/example
+python -m acres.evaluation.mask_images \
+    ./data/muenster_blur/images/ \
+    ./logs/example/task.py-2018-01-01_123456-my-model-name/predictions/ ./results/example/ --mask-weight 0.3
+```
+This is what was used to produce the example unblurred image.
