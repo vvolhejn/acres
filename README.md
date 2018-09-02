@@ -30,8 +30,10 @@ for better performance.
 
 acres requires Python 3.4 or higher. We recommend to use virtualenv for
 installation; the `install.sh` script should install the package in this way.
-Certain scripts in the `scripts` directory also require OpenCV (which must be
-installed separately), although this is not necessary for training.
+Prediction and certain scripts in the `scripts` directory also require OpenCV
+(which must be installed separately), although this is not necessary for training.
+The simplest way to install OpenCV is running `pip3 install opencv-python` from inside
+your virtualenv.
 
 ## Usage
 
