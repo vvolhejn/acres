@@ -3,6 +3,8 @@ acres is a tool for sharpening barcodes. Specifically, it is an implementation
 of a convolutional neural network designed for preprocessing blurry images of
 1D barcodes.
 
+**Disclaimer: this was an experimental project and I don't think it's suitable for applications - the barcodes appear unblurred, but I haven't had much luck trying to scan the unblurred barcodes using other software. I'm sure the model could be improved to fix this, but if you're looking for an out-of-the-box solution, you're better off looking elsewhere. Good luck!**
+
 For details of the architecture and implementation, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Example
